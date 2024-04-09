@@ -1,0 +1,12 @@
+plots/
+withclim_False_gsat.csv
+withclim_False_train_with_gsat.csv
+withclim_True_gsat.csv
+withclim_True_train_with_gsat.csv
+*.out
+*.pkl
+launch.json
+results*
+*.sh
+.vscode/
+__pycache__/
