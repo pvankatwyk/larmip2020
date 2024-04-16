@@ -6,6 +6,7 @@ from sklearn.preprocessing import StandardScaler
 import os
 from ise.utils.functions import get_all_filepaths
 import difflib
+import larmip
 
 def match_file_paths(list1, list2):
     matched_paths = []
@@ -34,6 +35,7 @@ def get_gsat_from_file(fp,):
   
   
 def generate_gsat(atmospheric_forcing_dir=r"/users/pvankatw/data/pvankatw/pvankatw-bfoxkemp/GHub-ISMIP6-Forcing/AIS/Atmosphere_Forcing/", with_clim=True):
+  # get all fps to Original CMIP GSAT
   all_fps = get_all_filepaths(atmospheric_forcing_dir, contains=['Original_CMIP5_Grid', '1995-2100'])
   if with_clim:
     clim_fps = get_all_filepaths(atmospheric_forcing_dir, contains=['Original_CMIP5_Grid', '_clim_'])
@@ -83,11 +85,49 @@ def add_gsat_to_regional(regional_data, gsat):
   regional_data = pd.merge(regional_data, gsat_melted, on=['aogcm', 'year'], how='left')
   return regional_data
 
+def group_ismip_by_larmip_region(data):
+    
+    # subset dataset to runs in LARMIP
+    data = data[data.model.isin(larmip.ismip_models)]
+    data['larmip_model'] = data.model.map(larmip.ismip_larmip_name_map)
+    
+    # convert normalized sectors to 1 to 18
+    sector_to_id = {sector: id for id, sector in enumerate(data['sector'].unique(), start=1)}
+    data['sector_original'] = data.sector.map(sector_to_id)
+    
+    # add LARMIP regions
+    data['larmip_region'] = data.sector_original.map(larmip.ismip_sectors_to_larmip_regions)
+
+    # subset to only columns of interest
+    data = data[['larmip_model', 'year', 'gsat', 'Scenario', 'sector_original', 'larmip_region', 'id', 'sle']]
+    
+    # aggregate by LARMIP region, taking average over sector forcings and sum over sector SLE
+    agg_funcs = {
+        'gsat': 'mean',
+        'sle': 'sum',
+    }
+    grouped = data.groupby(['larmip_model', 'larmip_region',  'Scenario', 'year']).agg(agg_funcs)
+    grouped = grouped.reset_index()
+    
+    # create new ID
+    grouped['id'] = grouped.larmip_model + '_' + grouped.larmip_region + '_' + grouped.Scenario
+    
+    return grouped
+  
+def process_ismip_to_larmip(ismip_dataset_fp, forcing_dir, export_dir=None):
+  gsat = generate_gsat(forcing_dir)
+  ismip = pd.read_csv(ismip_dataset_fp)
+  joined = add_gsat_to_regional(ismip, gsat)
+  
+  if export_dir:
+    joined.to_csv(f"{export_dir}/larmip_data.csv", index=False)
+  return joined
+  
+  
+
 
 if __name__ == "__main__":
-  with_clim = False
-  gsat = generate_gsat(r"/users/pvankatw/data/pvankatw/pvankatw-bfoxkemp/GHub-ISMIP6-Forcing/AIS/Atmosphere_Forcing/", with_clim=with_clim)
-  gsat.to_csv(f'./withclim_{with_clim}_gsat.csv', index=False)
-  added = add_gsat_to_regional(pd.read_csv(r'/oscar/scratch/pvankatw/datasets/sectors/AIS/with_chars/q0.5/train.csv'), gsat)
-  added.to_csv(f'./withclim_{with_clim}_train_with_gsat.csv', index=False)
+  ismip_dataset_fp = r'/oscar/scratch/pvankatw/datasets/sectors/AIS/with_chars/q0.5/val.csv'
+  forcing_dir = r"/users/pvankatw/data/pvankatw/pvankatw-bfoxkemp/GHub-ISMIP6-Forcing/AIS/Atmosphere_Forcing/"
+  process_ismip_to_larmip(ismip_dataset_fp, forcing_dir, export_dir='./')
   stop = ''

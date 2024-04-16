@@ -1,5 +1,6 @@
 from larmip import run_all_larmip, project_ismip, plot_larmip_results, project
 import larmip
+from generate_gsat_from_ismip import group_ismip_by_larmip_region
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -8,31 +9,13 @@ from ise.utils.functions import unscale
 # results = run_all_larmip(num_iters=250)
 
 all_dfs = []
-num_iters = 200
-with_clim = True
-path = f'./withclim_{with_clim}_train_with_gsat.csv'
+num_iters = 10000
+
+path = f'./train_with_gsat.csv'
 data = pd.read_csv(path)
-data = data[data.model.isin(larmip.ismip_models)]
-data['larmip_model'] = data.model.map(larmip.ismip_larmip_name_map)
-sector_to_id = {sector: id for id, sector in enumerate(data['sector'].unique(), start=1)}
+data = group_ismip_by_larmip_region(data, )
 
 
-data['sector_original'] = data.sector.map(sector_to_id)
-data['larmip_region'] = data.sector_original.map(larmip.ismip_sectors_to_larmip_regions)
-# data['sle'] = unscale(data.sle.values.reshape(-1,1), './scaler_y.pkl')
-
-data = data[['larmip_model', 'year', 'gsat', 'Scenario', 'sector_original', 'larmip_region', 'id', 'sle']]
-agg_funcs = {
-    'gsat': 'mean',
-    'sle': 'sum',
-}
-
-grouped = data.groupby(['larmip_model', 'larmip_region',  'Scenario', 'year']).agg(agg_funcs)
-grouped = grouped.reset_index()
-grouped['id'] = grouped.larmip_model + '_' + grouped.larmip_region + '_' + grouped.Scenario
-data = grouped
-# model = np.random.choice(list(process.ismip_larmip_name_map.values()))
-# model_runs = data.loc[data.larmip_model == model].reset_index(drop=True)
 for id_ in tqdm(list(data.id.unique()), total=len(list(data.id.unique()))):
     model_run = data.loc[data.id == id_]
     model = model_run.larmip_model.values[0]
@@ -42,23 +25,33 @@ for id_ in tqdm(list(data.id.unique()), total=len(list(data.id.unique()))):
 
     SL_wTd_nos_base = project_ismip(GSAT, model, num_iters=num_iters, region=region)
     results = pd.DataFrame(SL_wTd_nos_base.T, columns=[f'iter_{i+1}' for i in range(num_iters+1)])
-    results['year'] = model_run.year
+    
+    results['year'] = model_run.year.values
     results['model'] = model
-    results['scenario'] = model_run.Scenario
+    results['scenario'] = model_run.Scenario.values
+    results['larmip_region'] = region
+    if results.isna().any().any():
+        stop = ''
     all_dfs.append(results)
-    plot_larmip_results(SL_wTd_nos_base, model, scenario=model_run.Scenario.values[0].replace('_', "").upper(), true=sle.values )
+    plot_larmip_results(SL_wTd_nos_base, model, scenario=model_run.Scenario.values[0].replace('_', "").upper(), true=sle.values, export_dir=f'./plots/')
     stop = ''
 pd.concat(all_dfs).to_csv(f'./results_{num_iters}.csv', index=False)
-    
-# test_case = model_runs.loc[model_runs.id == np.random.choice(model_runs.id.unique())]
-# GSAT = test_case.gsat
-# sle = test_case.sle / 1000
 
-# train = pd.read_csv(r'./train_with_gsat.csv')
-# SL_wTd_nos_base_SU = project_ismip(GSAT, model, num_iters=100)
-# all_dfs.append(pd.DataFrame(SL_wTd_nos_base_SU))
-# plot_larmip_results(SL_wTd_nos_base_SU, model, scenario='RCP85', true=sle.values )
+path = f'./larmip_data.csv'
+data = pd.read_csv(path)
+data = group_ismip_by_larmip_region(data, )
+data.rename(columns={'Scenario': 'scenario'}, inplace=True)
 
-# # Why did they use MAGICC instead of the actual CMIP values?
-# # All of the values are basically zero when converted to meters. Is something going wrong?
-# stop = ''
+
+results_dataset = pd.concat(all_dfs)
+proj_cols = [x for x in results_dataset.columns if 'iter' in x]
+projs = results_dataset[proj_cols].values
+results_dataset['mean'] = projs.mean(axis=1)
+results_dataset['std'] = projs.std(axis=1)
+results_dataset = results_dataset.drop(columns=proj_cols)
+results_dataset.rename(columns={'model': 'larmip_model'}, inplace=True)
+
+data = pd.merge(data, results_dataset, on=['year', 'larmip_model', 'scenario', 'larmip_region'], how='inner')
+data.rename(columns={'mean': 'pred'}, inplace=True)
+data['pred'] = data.pred * 1000 # convert to mm
+data.to_csv(r'larmip_predictions.csv', index=False)

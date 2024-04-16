@@ -244,7 +244,7 @@ def project(GSAT, model_name, scaling_coefficients=None,  num_iters=100):
 
     return SL_wTd_nos_base_SU
 
-def plot_larmip_results(SL_wTd_nos_base_SU, model_name, scenario, true=None):
+def plot_larmip_results(SL_wTd_nos_base_SU, model_name, scenario, true=None, export_dir=None):
 
 
 
@@ -283,8 +283,12 @@ def plot_larmip_results(SL_wTd_nos_base_SU, model_name, scenario, true=None):
         if true is not None:
             plt.plot(Time, true, 'g-')
         plt.show()
-        fp2.savefig(f"./plots/SL_wTd_nos_base_{model_name}_SU_{scenario}_percentiles_shades.png", bbox_inches='tight')
-
+        if export_dir is None:
+            export_dir = './plots/'
+        else:
+            export_dir = export_dir + '/'
+        fp2.savefig(f"{export_dir}/SL_wTd_nos_base_{model_name}_SU_{scenario}_percentiles_shades.png", bbox_inches='tight')
+        plt.close('all')
         stop = ''
 
 
@@ -436,6 +440,9 @@ def project_ismip(GSAT, model_name, scaling_coefficients=None, num_iters=100, re
 
     SL_wTd_nos_base_SU = SL_wTd_nos_base_R1+SL_wTd_nos_base_R2+SL_wTd_nos_base_R3+SL_wTd_nos_base_R4+SL_wTd_nos_base_R5
 
+    if np.isnan(SL_wTd_nos_base_SU).any():
+        stop = ''
+        
     if region is None or region.lower() in ('sum', 'all'):
         return SL_wTd_nos_base_SU
     elif region == 1 or region == 'R1':
